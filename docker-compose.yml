@@ -1,0 +1,64 @@
+version: "3.8"
+
+services:
+  redis:
+    image: "redis:latest"
+    ports:
+      - "6380:6380"
+    networks:
+      - AtlasNetwork
+
+  manager:
+    build:
+      context: .
+      dockerfile: Manager/Dockerfile
+    depends_on:
+      - redis
+    networks:
+      - AtlasNetwork
+    volumes:
+      - type: bind
+        source: ./process_data
+        target: /mydir/process_info
+
+  reading:
+    build:
+      context: .
+      dockerfile: Reading/Dockerfile
+    volumes:
+      - type: bind
+        source: ./process_data
+        target: /mydir/process_info
+    depends_on:
+      - redis
+      - manager  # Add dependency on manager
+    networks:
+      - AtlasNetwork
+    deploy:
+      replicas: ${NUM_WORKERS:-2}
+
+  plotting:
+    build:
+      context: .
+      dockerfile: Plotting/Dockerfile
+    volumes:
+      - type: bind
+        source: ./process_data
+        target: /mydir/process_info
+    depends_on:
+      - manager  # Change dependency to manager instead of reading
+    networks:
+      - AtlasNetwork
+    # Add this to ensure plotting runs after all reading is complete
+    command: >
+      sh -c "
+        while [ ! -f /mydir/process_info/reading_ZH125_ZZ4lep* ]; do
+          echo 'Waiting for reading to complete...'
+          sleep 5
+        done
+        python plotting.py
+      "
+
+networks:
+  AtlasNetwork:
+    external: true
